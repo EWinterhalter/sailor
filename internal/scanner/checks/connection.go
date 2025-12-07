@@ -10,6 +10,18 @@ import (
 	"github.com/EWinterhalter/sailor/internal/scanner/printerln"
 )
 
+func cleanNetstatHeader(s string) string {
+	lines := strings.Split(s, "\n")
+
+	for i, line := range lines {
+		if strings.HasPrefix(strings.TrimSpace(line), "Proto") {
+			return strings.Join(lines[i+1:], "\n")
+		}
+	}
+
+	return s
+}
+
 func CheckConnections(containerID string) models.CheckResult {
 	start := time.Now()
 	printerln.PrintCheckStart("Network Connections")
@@ -20,8 +32,14 @@ func CheckConnections(containerID string) models.CheckResult {
 		Issues:      []string{},
 	}
 
-	output, err := docker.Exec(containerID, []string{"sh", "-c", "ss -tunap 2>/dev/null || netstat -tunap 2>/dev/null || echo 'no tools'"})
-	check.Output = output
+	output, err := docker.Exec(containerID, []string{
+		"sh", "-c",
+		"ss -tunap 2>/dev/null || netstat -tunap 2>/dev/null || echo 'no tools'",
+	})
+
+	cleaned := cleanNetstatHeader(output)
+	check.Output = cleaned
+
 	check.Duration = time.Since(start)
 
 	if err != nil || strings.Contains(output, "no tools") {
@@ -31,8 +49,8 @@ func CheckConnections(containerID string) models.CheckResult {
 		return check
 	}
 
-	established := strings.Count(output, "ESTAB")
-	listening := strings.Count(output, "LISTEN")
+	established := strings.Count(cleaned, "ESTAB")
+	listening := strings.Count(cleaned, "LISTEN")
 
 	if established > 10 {
 		check.Status = "warn"

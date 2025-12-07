@@ -20,8 +20,14 @@ func CheckOpenPorts(containerID string) models.CheckResult {
 		Issues:      []string{},
 	}
 
-	output, err := docker.Exec(containerID, []string{"sh", "-c", "netstat -tulpn 2>/dev/null || ss -tulpn 2>/dev/null || echo 'no network tools'"})
-	check.Output = output
+	output, err := docker.Exec(containerID, []string{
+		"sh", "-c",
+		"netstat -tulpn 2>/dev/null || ss -tulpn 2>/dev/null || echo 'no network tools'",
+	})
+
+	cleaned := cleanPortScanHeader(output)
+	check.Output = cleaned
+
 	check.Duration = time.Since(start)
 
 	if err != nil || strings.Contains(output, "no network tools") {
@@ -32,13 +38,18 @@ func CheckOpenPorts(containerID string) models.CheckResult {
 		return check
 	}
 
-	openPorts, suspiciousPorts := parseOpenPorts(output)
+	openPorts, suspiciousPorts := parseOpenPorts(cleaned)
 
 	if len(suspiciousPorts) > 0 {
 		check.Status = "fail"
 		check.Severity = "high"
 		check.Issues = append(check.Issues, fmt.Sprintf("Suspicious ports detected: %v", suspiciousPorts))
-		printerln.PrintCheckResult("Open Ports", "FAIL", check.Duration, fmt.Sprintf("%d open ports, %d suspicious", openPorts, len(suspiciousPorts)))
+		printerln.PrintCheckResult(
+			"Open Ports",
+			"FAIL",
+			check.Duration,
+			fmt.Sprintf("%d open ports, %d suspicious", openPorts, len(suspiciousPorts)),
+		)
 	} else if openPorts > 5 {
 		check.Status = "warn"
 		check.Severity = "medium"
@@ -53,7 +64,6 @@ func CheckOpenPorts(containerID string) models.CheckResult {
 	return check
 }
 
-// parseOpenPorts — вспомогательная функция для подсчета открытых и подозрительных портов
 func parseOpenPorts(output string) (int, []string) {
 	lines := strings.Split(output, "\n")
 	openPorts := 0
@@ -72,4 +82,23 @@ func parseOpenPorts(output string) (int, []string) {
 	}
 
 	return openPorts, suspiciousPorts
+}
+
+func cleanPortScanHeader(s string) string {
+	lines := strings.Split(s, "\n")
+
+	startIdx := 0
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "Proto") || strings.HasPrefix(trimmed, "Netid") {
+			startIdx = i + 1
+			break
+		}
+	}
+
+	if startIdx < len(lines) {
+		return strings.Join(lines[startIdx:], "\n")
+	}
+
+	return s
 }

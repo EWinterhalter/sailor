@@ -20,14 +20,45 @@ type ScanResult struct {
 }
 
 type Summary struct {
-	TotalChecks int `json:"total_checks"`
-	Passed      int `json:"passed"`
-	Warnings    int `json:"warnings"`
-	Failed      int `json:"failed"`
-	Critical    int `json:"critical"`
-	High        int `json:"high"`
-	Medium      int `json:"medium"`
-	Low         int `json:"low"`
+	TotalChecks int  `json:"total_checks"`
+	Passed      int  `json:"passed"`
+	Warnings    int  `json:"warnings"`
+	Failed      int  `json:"failed"`
+	Critical    int  `json:"critical"`
+	High        int  `json:"high"`
+	Medium      int  `json:"medium"`
+	Low         int  `json:"low"`
+	HasFailures bool `json:"has_failures"`
+	HasWarnings bool `json:"has_warnings"`
+}
+
+type FinalReport struct {
+	Timestamp time.Time   `json:"timestamp"`
+	Scan      ScanInfo    `json:"scan"`
+	Results   ResultsInfo `json:"results"`
+}
+
+type ScanInfo struct {
+	Image       string  `json:"image"`
+	ContainerID string  `json:"container_id"`
+	TotalTimeMs float64 `json:"total_time_ms"`
+}
+
+type ResultsInfo struct {
+	Summary Summary      `json:"summary"`
+	Checks  []CheckEntry `json:"checks"`
+}
+
+type CheckEntry struct {
+	Name          string   `json:"name"`
+	Description   string   `json:"description"`
+	Severity      string   `json:"severity"`
+	Status        string   `json:"status"`
+	DurationMs    float64  `json:"duration_ms"`
+	Output        string   `json:"output,omitempty"`
+	OutputPreview string   `json:"output_preview,omitempty"`
+	OutputFull    *string  `json:"output_full"`
+	Issues        []string `json:"issues"`
 }
 
 func (sr *ScanResult) CalculateSummary() {

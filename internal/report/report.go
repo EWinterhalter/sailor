@@ -1,26 +1,59 @@
 package report
 
 import (
-	"encoding/json"
 	"time"
+
+	"github.com/EWinterhalter/sailor/internal/scanner/models"
 )
 
-type Report struct {
-	Timestamp   time.Time   `json:"timestamp"`
-	Image       string      `json:"image"`
-	ContainerID string      `json:"container_id"`
-	Result      interface{} `json:"result"`
-}
+func BuildReport(image string, containerID string, scan *models.ScanResult) *models.FinalReport {
+	checks := make([]models.CheckEntry, 0, len(scan.Checks))
 
-func BuildReport(image, containerID string, result interface{}) *Report {
-	return &Report{
-		Timestamp:   time.Now(),
-		Image:       image,
-		ContainerID: containerID,
-		Result:      result,
+	for _, c := range scan.Checks {
+		entry := models.CheckEntry{
+			Name:        c.Name,
+			Description: c.Description,
+			Severity:    c.Severity,
+			Status:      c.Status,
+			DurationMs:  float64(c.Duration.Milliseconds()),
+			Issues:      c.Issues,
+		}
+
+		// Логика превью и полного вывода
+		if len(c.Output) > 300 {
+			entry.OutputPreview = c.Output[:300] + "..."
+			entry.OutputFull = nil
+		} else {
+			entry.Output = c.Output
+			entry.OutputFull = nil
+		}
+
+		checks = append(checks, entry)
 	}
-}
 
-func ToJSON(r *Report) ([]byte, error) {
-	return json.MarshalIndent(r, "", "  ")
+	summary := models.Summary{
+		TotalChecks: scan.Summary.TotalChecks,
+		Passed:      scan.Summary.Passed,
+		Warnings:    scan.Summary.Warnings,
+		Failed:      scan.Summary.Failed,
+		Critical:    scan.Summary.Critical,
+		High:        scan.Summary.High,
+		Medium:      scan.Summary.Medium,
+		Low:         scan.Summary.Low,
+		HasFailures: scan.Summary.Failed > 0 || scan.Summary.Critical > 0,
+		HasWarnings: scan.Summary.Warnings > 0,
+	}
+
+	return &models.FinalReport{
+		Timestamp: time.Now(),
+		Scan: models.ScanInfo{
+			Image:       image,
+			ContainerID: containerID[:12],
+			TotalTimeMs: float64(scan.TotalTime.Milliseconds()),
+		},
+		Results: models.ResultsInfo{
+			Summary: summary,
+			Checks:  checks,
+		},
+	}
 }

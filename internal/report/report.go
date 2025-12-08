@@ -19,7 +19,6 @@ func BuildReport(image string, containerID string, scan *models.ScanResult) *mod
 			Issues:      c.Issues,
 		}
 
-		// Логика превью и полного вывода
 		if len(c.Output) > 300 {
 			entry.OutputPreview = c.Output[:300] + "..."
 			entry.OutputFull = nil

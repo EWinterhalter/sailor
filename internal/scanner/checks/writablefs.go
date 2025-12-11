@@ -1,7 +1,6 @@
 package checks
 
 import (
-	"strings"
 	"time"
 
 	"github.com/EWinterhalter/sailor/internal/docker"
@@ -15,15 +14,17 @@ func CheckWritableFS(containerID string) models.CheckResult {
 
 	check := models.CheckResult{
 		Name:        "Writable FS",
-		Description: "Checks if root filesystem is writable",
+		Description: "Checks if writing to root filesystem is possible",
 		Issues:      []string{},
 	}
 
-	output, _ := docker.Exec(containerID, []string{"mount"})
+	testCmd := []string{"sh", "-c", "touch /.__sailor_test__ 2>/dev/null && echo OK || echo FAIL"}
+	output, _ := docker.Exec(containerID, testCmd)
+
 	check.Output = output
 	check.Duration = time.Since(start)
 
-	if strings.Contains(output, "rw") {
+	if output == "OK\n" || output == "OK" {
 		check.Status = "warn"
 		check.Severity = "medium"
 		check.Issues = append(check.Issues, "Root filesystem is writable")
@@ -33,6 +34,8 @@ func CheckWritableFS(containerID string) models.CheckResult {
 		check.Severity = "low"
 		printerln.PrintCheckResult("Writable FS", "PASS", check.Duration, "Filesystem is read-only")
 	}
+
+	_, _ = docker.Exec(containerID, []string{"sh", "-c", "rm -f /.__sailor_test__ 2>/dev/null"})
 
 	return check
 }

@@ -1,9 +1,9 @@
 {
-  "timestamp": "2025-12-08T12:02:24.828653753+03:00",
+  "timestamp": "2025-12-10T10:51:00.744132542+03:00",
   "scan": {
     "image": "bad_container",
-    "container_id": "a1e877768cfb",
-    "total_time_ms": 725
+    "container_id": "2580cc5c015a",
+    "total_time_ms": 534
   },
   "results": {
     "summary": {
@@ -24,7 +24,7 @@
         "description": "Checking for exposed network ports",
         "severity": "low",
         "status": "pass",
-        "duration_ms": 87,
+        "duration_ms": 60,
         "output_full": null,
         "issues": []
       },
@@ -33,7 +33,7 @@
         "description": "Checking active network connections",
         "severity": "low",
         "status": "pass",
-        "duration_ms": 91,
+        "duration_ms": 49,
         "output_full": null,
         "issues": []
       },
@@ -42,8 +42,8 @@
         "description": "Checking for sensitive data in environment",
         "severity": "high",
         "status": "fail",
-        "duration_ms": 83,
-        "output": "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin\nHOSTNAME=a1e877768cfb\nDB_PASSWORD=supersecret123\nAPI_KEY=123456789\nHOME=/root\n",
+        "duration_ms": 46,
+        "output": "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin\nHOSTNAME=2580cc5c015a\nDB_PASSWORD=supersecret123\nAPI_KEY=123456789\nHOME=/root\n",
         "output_full": null,
         "issues": [
           "Sensitive data exposed: DB_PASSWORD, DB_PASSWORD, DB_PASSWORD, API_KEY"
@@ -54,7 +54,7 @@
         "description": "Checks if container runs as root",
         "severity": "high",
         "status": "fail",
-        "duration_ms": 80,
+        "duration_ms": 47,
         "output": "0\n",
         "output_full": null,
         "issues": [
@@ -66,7 +66,7 @@
         "description": "Check layers for secrets or sensitive files",
         "severity": "high",
         "status": "fail",
-        "duration_ms": 36,
+        "duration_ms": 29,
         "output_preview": "/bin/sh -c #(nop)  CMD [\"sh\" \"-c\" \"echo 'Этот контейнер УМЫШЛЕННО небезопасен ^_^'\"]\n/bin/sh -c #(nop)  EXPOSE 8080\n/bin/sh -c #(nop)  USER root\n/bin/sh -c #(nop)  ENV DB_PASSWORD=supersecret123 API_KEY=123456789\n/bin/sh -c apk add --no-cache bash\n/bin/sh -c #(nop)  ...",
         "output_full": null,
         "issues": [
@@ -75,11 +75,11 @@
       },
       {
         "name": "Writable FS",
-        "description": "Checks if root filesystem is writable",
+        "description": "Checks if writing to root filesystem is possible",
         "severity": "medium",
         "status": "warn",
-        "duration_ms": 70,
-        "output_preview": "overlay on / type overlay (rw,relatime,lowerdir=/var/lib/docker/overlay2/l/VFRFM6MG3OVXJ3DI5NMB6GKU2A:/var/lib/docker/overlay2/l/BYXW5NGDFVGGSLKIVCHREH7WUR:/var/lib/docker/overlay2/l/SJFFK23DBFAQHH3UU4YCAYLMEO,upperdir=/var/lib/docker/overlay2/a4d13fdc7ea176c062704b656e3fce0d9d6711b33e48103c8943843c...",
+        "duration_ms": 47,
+        "output": "OK\n",
         "output_full": null,
         "issues": [
           "Root filesystem is writable"

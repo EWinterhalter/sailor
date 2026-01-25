@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/EWinterhalter/sailor/internal/colors"
+	"github.com/EWinterhalter/sailor/internal/db"
 	"github.com/EWinterhalter/sailor/internal/docker"
 	"github.com/EWinterhalter/sailor/internal/report"
 	"github.com/EWinterhalter/sailor/internal/scanner"
@@ -16,11 +17,23 @@ import (
 )
 
 var (
-	flagSavePath string
+	flagSavePath   string
+	flagSaveDB     bool
+	flagDBHost     string
+	flagDBPort     int
+	flagDBUser     string
+	flagDBPassword string
+	flagDBName     string
 )
 
 func init() {
 	scanCmd.Flags().StringVar(&flagSavePath, "save-result", "", "path to save result JSON")
+	scanCmd.Flags().BoolVar(&flagSaveDB, "save-db", false, "save results to PostgreSQL database")
+	scanCmd.Flags().StringVar(&flagDBHost, "db-host", "localhost", "database host")
+	scanCmd.Flags().IntVar(&flagDBPort, "db-port", 5432, "database port")
+	scanCmd.Flags().StringVar(&flagDBUser, "db-user", "sailor", "database user")
+	scanCmd.Flags().StringVar(&flagDBPassword, "db-password", "sailor_pass", "database password")
+	scanCmd.Flags().StringVar(&flagDBName, "db-name", "sailor_db", "database name")
 
 	rootCmd.AddCommand(scanCmd)
 }
@@ -67,6 +80,33 @@ var scanCmd = &cobra.Command{
 			}
 			fmt.Printf("%s[INFO]%s Report saved to: %s\n",
 				colors.ColorGreen, colors.ColorReset, flagSavePath)
+		}
+
+		if flagSaveDB {
+			dbConn, err := db.Connect(db.Config{
+				Host:     flagDBHost,
+				Port:     flagDBPort,
+				User:     flagDBUser,
+				Password: flagDBPassword,
+				DBName:   flagDBName,
+				SSLMode:  "disable",
+			})
+			if err != nil {
+				fmt.Printf("%s[WARN]%s Failed to connect to database: %v\n",
+					colors.ColorYellow, colors.ColorReset, err)
+			} else {
+				defer dbConn.Close()
+
+				repo := db.NewRepository(dbConn)
+				scanID, err := repo.SaveScanReport(reportData)
+				if err != nil {
+					fmt.Printf("%s[WARN]%s Failed to save to database: %v\n",
+						colors.ColorYellow, colors.ColorReset, err)
+				} else {
+					fmt.Printf("%s[INFO]%s Report saved to database with ID: %d\n",
+						colors.ColorGreen, colors.ColorReset, scanID)
+				}
+			}
 		}
 
 		fmt.Printf("%s[INFO]%s Stopping and removing container...\n",

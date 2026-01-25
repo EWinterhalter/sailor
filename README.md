@@ -1,5 +1,11 @@
-## Sailor 🌊 ![alpha](https://img.shields.io/badge/version-alpha-blue?style=plastic)
+## Sailor 🌊 ![beta](https://img.shields.io/badge/version-beta-blue?style=plastic)
 
+## Update
++Connecting the database.
+
+to do add a funcs for db, add more checks
+
+## About
 A cli utility designed for dynamic analysis of the security of Docker containers in CI/CD pipelines.
 The utility starts the image, performs checks, and stops executing the image. The results are output in the terminal and can also be saved in JSON.
 

@@ -56,7 +56,7 @@ jobs:
         run: |
           docker build -f tests/good_container/Dockerfile -t test-app-good:${{ github.sha }} .
           
-          docker build -f test/bad_container/Dockerfile -t test-app-bad:${{ github.sha }} .
+          docker build -f tests/bad_container/Dockerfile -t test-app-bad:${{ github.sha }} .
       
       - name: Scan secure container
         continue-on-error: true

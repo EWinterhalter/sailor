@@ -4,8 +4,6 @@ RUN apk add --no-cache bash
 
 RUN addgroup -S meowa && adduser -S meowa -G meowa
 
-COPY --chown=meowa:meowa ./script.sh /home/meowa/script.sh
-
 USER meowa
 WORKDIR /home/meowa
 

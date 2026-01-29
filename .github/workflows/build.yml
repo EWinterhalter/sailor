@@ -1,0 +1,122 @@
+name: Pipeline Sailor scan
+
+on:
+  push:
+    branches: [ beta ]
+  pull_request:
+    branches: [ beta ]
+  workflow_dispatch:
+
+jobs:
+  security-scan:
+    runs-on: ubuntu-latest
+    
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: sailor_user
+          POSTGRES_PASSWORD: sailor_pass
+          POSTGRES_DB: sailor
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.21'
+      
+      - name: Install dependencies
+        run: |
+          go mod download
+          go mod verify
+      
+      - name: Build Sailor
+        run: |
+          go build -v -o sailor main.go
+          chmod +x sailor
+      
+      - name: Setup PostgreSQL 
+        env:
+          PGPASSWORD: sailor_pass
+        run: |
+          psql -h localhost -U sailor_user -d sailor -f init.sql
+          echo "Database setup successfully"
+      
+      - name: Build test Docker images
+        run: |
+          docker build -f tests/good_container/Dockerfile -t test-app-good:${{ github.sha }} .
+          
+          docker build -f test/bad_container/Dockerfile -t test-app-bad:${{ github.sha }} .
+      
+      - name: Scan secure container
+        continue-on-error: true
+        run: |
+          ./sailor scan test-app-good:${{ github.sha }} \
+            --save-db \
+            --db-host localhost \
+            --db-user sailor_user \
+            --db-password sailor_pass \
+            --db-name sailor \
+            --save-result reports/good-scan.json
+      
+      - name: Scan vulnerable container
+        continue-on-error: true
+        run: |
+          ./sailor scan test-app-bad:${{ github.sha }} \
+            --save-db \
+            --db-host localhost \
+            --db-user sailor_user \
+            --db-password sailor_pass \
+            --db-name sailor \
+            --save-result reports/bad-scan.json
+      
+      # - name: Generate scan history report
+      #   run: |
+      #     ./sailor history \
+      #       --db-host localhost \
+      #       --db-user sailor_user \
+      #       --db-password sailor_pass \
+      #       --json > reports/scan-history.json
+          
+      #     ./sailor history \
+      #       --db-host localhost \
+      #       --db-user sailor_user \
+      #       --db-password sailor_pass > reports/scan-history.txt
+      
+      # - name: Get statistics
+      #   run: |
+      #     ./sailor stats --image test-app-secure:${{ github.sha }} \
+      #       --db-host localhost \
+      #       --db-user sailor_user \
+      #       --db-password sailor_pass \
+      #       --json > reports/stats-secure.json || echo "No stats yet for secure image"
+          
+      #     ./sailor stats --image test-app-vuln:${{ github.sha }} \
+      #       --db-host localhost \
+      #       --db-user sailor_user \
+      #       --db-password sailor_pass \
+      #       --json > reports/stats-vuln.json || echo "No stats yet for vulnerable image"
+      
+      # - name: Export database data
+      #   env:
+      #     PGPASSWORD: sailor_pass
+      #   run: |
+      #     mkdir -p reports/db-export
+          
+      #     psql -h localhost -U sailor_user -d sailor -c \
+      #       "COPY (SELECT * FROM scans ORDER BY scan_timestamp DESC) TO STDOUT CSV HEADER" \
+      #       > reports/db-export/scans.csv
+          
+      #     psql -h localhost -U sailor_user -d sailor -c \
+      #       "COPY (SELECT * FROM checks ORDER BY scan_id, id) TO STDOUT CSV HEADER" \
+      #       > reports/db-export/checks.csv

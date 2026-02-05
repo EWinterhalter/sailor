@@ -1,5 +1,4 @@
 name: Pipeline Sailor scan
-
 on:
   push:
     branches: [ beta ]
@@ -8,23 +7,9 @@ on:
   workflow_dispatch:
 
 jobs:
-  security-scan:
+  build:
+    name: Build Sailor & Test Images
     runs-on: ubuntu-latest
-    
-    services:
-      postgres:
-        image: postgres:15
-        env:
-          POSTGRES_USER: sailor_user
-          POSTGRES_PASSWORD: sailor_pass
-          POSTGRES_DB: sailor
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 5432:5432
     
     steps:
       - name: Checkout code
@@ -45,22 +30,117 @@ jobs:
           go build -v -o sailor main.go
           chmod +x sailor
       
-      - name: Setup PostgreSQL 
+      - name: Build test Docker images
+        run: |
+          docker build -f tests/good_container/Dockerfile -t test-app-good:${{ github.sha }} .
+          docker build -f tests/bad_container/Dockerfile -t test-app-bad:${{ github.sha }} .
+      
+      - name: Save Sailor binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: sailor-binary
+          path: sailor
+          retention-days: 1
+      
+      - name: Save Docker images
+        run: |
+          docker save test-app-good:${{ github.sha }} -o good-image.tar
+          docker save test-app-bad:${{ github.sha }} -o bad-image.tar
+      
+      - name: Upload Docker images
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-images
+          path: |
+            good-image.tar
+            bad-image.tar
+          retention-days: 1
+
+  setup-database:
+    name: Setup PostgreSQL
+    runs-on: ubuntu-latest
+    needs: build
+    
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: sailor_user
+          POSTGRES_PASSWORD: sailor_pass
+          POSTGRES_DB: sailor
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup PostgreSQL schema
         env:
           PGPASSWORD: sailor_pass
         run: |
           psql -h localhost -U sailor_user -d sailor -f init.sql
           echo "Database setup successfully"
       
-      - name: Build test Docker images
+      - name: Verify database
+        env:
+          PGPASSWORD: sailor_pass
         run: |
-          docker build -f tests/good_container/Dockerfile -t test-app-good:${{ github.sha }} .
-          
-          docker build -f tests/bad_container/Dockerfile -t test-app-bad:${{ github.sha }} .
+          psql -h localhost -U sailor_user -d sailor -c "\dt"
+
+  scan-good-container:
+    name: Scan Secure Container
+    runs-on: ubuntu-latest
+    needs: [build, setup-database]
+    
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: sailor_user
+          POSTGRES_PASSWORD: sailor_pass
+          POSTGRES_DB: sailor
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Download Sailor binary
+        uses: actions/download-artifact@v4
+        with:
+          name: sailor-binary
+      
+      - name: Download Docker images
+        uses: actions/download-artifact@v4
+        with:
+          name: test-images
+      
+      - name: Load Docker image
+        run: |
+          docker load -i good-image.tar
+          chmod +x sailor
+      
+      - name: Setup database
+        env:
+          PGPASSWORD: sailor_pass
+        run: |
+          psql -h localhost -U sailor_user -d sailor -f init.sql
       
       - name: Scan secure container
-        continue-on-error: true
         run: |
+          mkdir -p reports
           ./sailor scan test-app-good:${{ github.sha }} \
             --save-db \
             --db-host localhost \
@@ -69,16 +149,106 @@ jobs:
             --db-name sailor \
             --save-result reports/good-scan.json
       
+      - name: Upload scan results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: good-container-scan
+          path: reports/good-scan.json
+
+  scan-bad-container:
+    name: Scan Vulnerable Container
+    runs-on: ubuntu-latest
+    needs: [build, setup-database]
+    continue-on-error: true  # Эта job не заблокирует весь workflow
+    
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: sailor_user
+          POSTGRES_PASSWORD: sailor_pass
+          POSTGRES_DB: sailor
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Download Sailor binary
+        uses: actions/download-artifact@v4
+        with:
+          name: sailor-binary
+      
+      - name: Download Docker images
+        uses: actions/download-artifact@v4
+        with:
+          name: test-images
+      
+      - name: Load Docker image
+        run: |
+          docker load -i bad-image.tar
+          chmod +x sailor
+      
+      - name: Setup database
+        env:
+          PGPASSWORD: sailor_pass
+        run: |
+          psql -h localhost -U sailor_user -d sailor -f init.sql
+      
       - name: Scan vulnerable container
         continue-on-error: true
         run: |
+          mkdir -p reports
           ./sailor scan test-app-bad:${{ github.sha }} \
             --save-db \
             --db-host localhost \
             --db-user sailor_user \
             --db-password sailor_pass \
             --db-name sailor \
-            --save-result reports/bad-scan.json
+            --save-result reports/bad-scan.json || true
+      
+      - name: Upload scan results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bad-container-scan
+          path: reports/bad-scan.json
+
+  report:
+    name: Generate Summary Report
+    runs-on: ubuntu-latest
+    needs: [scan-good-container, scan-bad-container]
+    if: always()
+    
+    steps:
+      - name: Download all scan results
+        uses: actions/download-artifact@v4
+        with:
+          path: all-reports
+      
+      - name: Generate summary
+        run: |
+          echo "# Security Scan Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ -f all-reports/good-container-scan/good-scan.json ]; then
+            echo "✅ **Secure container scan completed**" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ **Secure container scan failed**" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          if [ -f all-reports/bad-container-scan/bad-scan.json ]; then
+            echo "⚠️ **Vulnerable container scan completed**" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ **Vulnerable container scan failed**" >> $GITHUB_STEP_SUMMARY
+          fi
       
       # - name: Generate scan history report
       #   run: |

@@ -3,7 +3,9 @@
 ## Update
 +Connecting the database.
 
-to do add a funcs for db, add more checks
++Implementation in CI/CD
+
++New checks
 
 ## About
 A cli utility designed for dynamic analysis of the security of Docker containers in CI/CD pipelines.
@@ -23,14 +25,11 @@ Usage:
 ```
 Flags:
 ```sh
-./sailor scan [name image] --save-result=/path/to/results.json
+./sailor scan [name image] --save-db --db-host [host] --db-port [port]
+./sailor scan [name image] --save-result=/path/to/results.json #delete in realese!
 ```
 
 Further development plans:
-- Connecting the database
-- Improving the CLI interface
 - The ability to scan multiple containers simultaneously
 - Adding various checks
 - Tips for correcting identified issues
-- Implementation in CI/CD
-- Add more flags 

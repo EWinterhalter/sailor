@@ -26,6 +26,10 @@ func RunChecks(containerID string, timeout time.Duration) (*models.ScanResult, e
 		result.Checks = append(result.Checks, checks.CheckRootUser(containerID))
 		result.Checks = append(result.Checks, checks.CheckImageHistory(containerID))
 		result.Checks = append(result.Checks, checks.CheckWritableFS(containerID))
+		result.Checks = append(result.Checks, checks.CheckNetcatListener(containerID))
+		result.Checks = append(result.Checks, checks.CheckNetcatProcess(containerID))
+		result.Checks = append(result.Checks, checks.CheckOpenPort4444(containerID))
+		result.Checks = append(result.Checks, checks.CheckRemoteShell(containerID))
 		checksDone <- true
 	}()
 

@@ -1,4 +1,5 @@
 name: Pipeline Sailor scan
+
 on:
   push:
     branches: [ beta ]
@@ -10,43 +11,43 @@ jobs:
   build:
     name: Build Sailor & Test Images
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-      
+
       - name: Set up Go
         uses: actions/setup-go@v4
         with:
           go-version: '1.21'
-      
+
       - name: Install dependencies
         run: |
           go mod download
           go mod verify
-      
+
       - name: Build Sailor
         run: |
           go build -v -o sailor main.go
           chmod +x sailor
-      
+
       - name: Build test Docker images
         run: |
           docker build -f tests/good_container/Dockerfile -t test-app-good:${{ github.sha }} .
           docker build -f tests/bad_container/Dockerfile -t test-app-bad:${{ github.sha }} .
-      
+
       - name: Save Sailor binary
         uses: actions/upload-artifact@v4
         with:
           name: sailor-binary
           path: sailor
           retention-days: 1
-      
+
       - name: Save Docker images
         run: |
           docker save test-app-good:${{ github.sha }} -o good-image.tar
           docker save test-app-bad:${{ github.sha }} -o bad-image.tar
-      
+
       - name: Upload Docker images
         uses: actions/upload-artifact@v4
         with:
@@ -60,7 +61,7 @@ jobs:
     name: Setup PostgreSQL
     runs-on: ubuntu-latest
     needs: build
-    
+
     services:
       postgres:
         image: postgres:15
@@ -75,18 +76,18 @@ jobs:
           --health-retries 5
         ports:
           - 5432:5432
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-      
+
       - name: Setup PostgreSQL schema
         env:
           PGPASSWORD: sailor_pass
         run: |
           psql -h localhost -U sailor_user -d sailor -f init.sql
           echo "Database setup successfully"
-      
+
       - name: Verify database
         env:
           PGPASSWORD: sailor_pass
@@ -97,7 +98,7 @@ jobs:
     name: Scan Secure Container
     runs-on: ubuntu-latest
     needs: [build, setup-database]
-    
+
     services:
       postgres:
         image: postgres:15
@@ -112,32 +113,32 @@ jobs:
           --health-retries 5
         ports:
           - 5432:5432
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-      
+
       - name: Download Sailor binary
         uses: actions/download-artifact@v4
         with:
           name: sailor-binary
-      
+
       - name: Download Docker images
         uses: actions/download-artifact@v4
         with:
           name: test-images
-      
-      - name: Load Docker image
+
+      - name: Load good Docker image
         run: |
           docker load -i good-image.tar
           chmod +x sailor
-      
+
       - name: Setup database
         env:
           PGPASSWORD: sailor_pass
         run: |
           psql -h localhost -U sailor_user -d sailor -f init.sql
-      
+
       - name: Scan secure container
         run: |
           mkdir -p reports
@@ -148,8 +149,8 @@ jobs:
             --db-password sailor_pass \
             --db-name sailor \
             --save-result reports/good-scan.json
-      
-      - name: Upload scan results
+
+      - name: Upload scan results (good)
         uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -160,7 +161,7 @@ jobs:
     name: Scan Vulnerable Container
     runs-on: ubuntu-latest
     needs: [build, setup-database]
-    
+
     services:
       postgres:
         image: postgres:15
@@ -175,35 +176,33 @@ jobs:
           --health-retries 5
         ports:
           - 5432:5432
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-      
+
       - name: Download Sailor binary
         uses: actions/download-artifact@v4
         with:
           name: sailor-binary
-      
+
       - name: Download Docker images
         uses: actions/download-artifact@v4
         with:
           name: test-images
-      
-      - name: Load Docker image
+
+      - name: Load bad Docker image
         run: |
           docker load -i bad-image.tar
           chmod +x sailor
-      
+
       - name: Setup database
         env:
           PGPASSWORD: sailor_pass
         run: |
           psql -h localhost -U sailor_user -d sailor -f init.sql
-      
+
       - name: Scan vulnerable container
-        id: scan
-        continue-on-error: true  
         run: |
           mkdir -p reports
           ./sailor scan test-app-bad:${{ github.sha }} \
@@ -213,98 +212,36 @@ jobs:
             --db-password sailor_pass \
             --db-name sailor \
             --save-result reports/bad-scan.json
-      
-      - name: Upload scan results
+
+      - name: Upload scan results (bad)
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: bad-container-scan
           path: reports/bad-scan.json
-      
-      - name: Check scan results
-        if: always()
+
+      - name: Check scan results (fail pipeline if vulnerabilities found)
         run: |
           if [ -f reports/bad-scan.json ]; then
-            # Проверяем наличие уязвимостей в JSON
             VULNERABILITIES=$(jq '.vulnerabilities | length' reports/bad-scan.json 2>/dev/null || echo "0")
-            
+
             echo "Found $VULNERABILITIES vulnerabilities"
-            
+
             if [ "$VULNERABILITIES" -gt 0 ]; then
               echo "::error::🚨 Found $VULNERABILITIES vulnerabilities in container!"
-              exit 1  
+              exit 1
             fi
           else
             echo "::error::Scan failed to produce results"
             exit 1
           fi
 
-  report:
-    name: Generate Summary Report
+  deploy-or-next-stage:
+    name: Next Stage (Should not run if bad container failed)
     runs-on: ubuntu-latest
     needs: [scan-good-container, scan-bad-container]
-    if: always()
-    
+
     steps:
-      - name: Download all scan results
-        uses: actions/download-artifact@v4
-        with:
-          path: all-reports
-      
-      - name: Generate summary
+      - name: This should NOT run if bad container is vulnerable
         run: |
-          echo "# Security Scan Summary" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          
-          if [ -f all-reports/good-container-scan/good-scan.json ]; then
-            echo "✅ **Secure container scan completed**" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "❌ **Secure container scan failed**" >> $GITHUB_STEP_SUMMARY
-          fi
-          
-          if [ -f all-reports/bad-container-scan/bad-scan.json ]; then
-            echo "🚨 **Vulnerable container scan completed**" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "❌ **Vulnerable container scan failed**" >> $GITHUB_STEP_SUMMARY
-          fi
-      
-      # - name: Generate scan history report
-      #   run: |
-      #     ./sailor history \
-      #       --db-host localhost \
-      #       --db-user sailor_user \
-      #       --db-password sailor_pass \
-      #       --json > reports/scan-history.json
-          
-      #     ./sailor history \
-      #       --db-host localhost \
-      #       --db-user sailor_user \
-      #       --db-password sailor_pass > reports/scan-history.txt
-      
-      # - name: Get statistics
-      #   run: |
-      #     ./sailor stats --image test-app-secure:${{ github.sha }} \
-      #       --db-host localhost \
-      #       --db-user sailor_user \
-      #       --db-password sailor_pass \
-      #       --json > reports/stats-secure.json || echo "No stats yet for secure image"
-          
-      #     ./sailor stats --image test-app-vuln:${{ github.sha }} \
-      #       --db-host localhost \
-      #       --db-user sailor_user \
-      #       --db-password sailor_pass \
-      #       --json > reports/stats-vuln.json || echo "No stats yet for vulnerable image"
-      
-      # - name: Export database data
-      #   env:
-      #     PGPASSWORD: sailor_pass
-      #   run: |
-      #     mkdir -p reports/db-export
-          
-      #     psql -h localhost -U sailor_user -d sailor -c \
-      #       "COPY (SELECT * FROM scans ORDER BY scan_timestamp DESC) TO STDOUT CSV HEADER" \
-      #       > reports/db-export/scans.csv
-          
-      #     psql -h localhost -U sailor_user -d sailor -c \
-      #       "COPY (SELECT * FROM checks ORDER BY scan_id, id) TO STDOUT CSV HEADER" \
-      #       > reports/db-export/checks.csv
+          echo "🚀 This step runs only if both scans passed"

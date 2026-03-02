@@ -1,5 +1,5 @@
-# Sailor 🌊 ![realese](https://img.shields.io/badge/version-v1.0.0-blue?style=plastic)
-![image](https://github.com/EWinterhalter/sailor/blob/beta/src/DOCKER.png)
+# Sailor 🌊 ![release](https://img.shields.io/badge/version-v1.0.0-blue?style=plastic)
+![image](https://github.com/EWinterhalter/sailor/blob/release/src/DOCKER.png)
 ## About
 A simple Go CLI app for runtime checks of docker containers. With the ability to save the results to a database. It is supposed to be used in CI/CI pipeline.
 
@@ -67,7 +67,7 @@ Severity Breakdown:
 ⚠ SECURITY ISSUES DETECTED ⚠
 ```
 Use in CI/CD pipline:
-![image](https://github.com/EWinterhalter/sailor/blob/beta/src/PIPELINE.png)
+![image](https://github.com/EWinterhalter/sailor/blob/release/src/PIPELINE.png)
 
 Verification criteria:
 

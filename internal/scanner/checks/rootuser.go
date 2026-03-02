@@ -25,7 +25,7 @@ func CheckRootUser(containerID string) models.CheckResult {
 
 	if strings.TrimSpace(output) == "0" {
 		check.Status = "fail"
-		check.Severity = "high"
+		check.Severity = "critical"
 		check.Issues = append(check.Issues, "Container runs as root (UID=0)")
 		printerln.PrintCheckResult("Root User", "FAIL", check.Duration, "UID=0")
 	} else {

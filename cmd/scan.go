@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/EWinterhalter/sailor/internal/colors"
@@ -38,84 +39,150 @@ func init() {
 	rootCmd.AddCommand(scanCmd)
 }
 
+type scanTarget struct {
+	Image       string
+	ContainerID string
+	StartErr    error
+}
+
 var scanCmd = &cobra.Command{
-	Use:  "scan <image>",
-	Args: cobra.ExactArgs(1),
+	Use:  "scan <image> [image...]",
+	Args: cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		image := args[0]
+		images := args
+		timeout := 60 * time.Second
 
-		fmt.Printf("%s[INFO]%s Starting security scan for image: %s%s%s\n",
-			colors.ColorBlue, colors.ColorReset,
-			colors.ColorBold, image, colors.ColorReset)
+		targets := make([]scanTarget, len(images))
+		var wg sync.WaitGroup
 
-		timeout := time.Duration(60) * time.Second
+		fmt.Printf("%s[INFO]%s Starting %d container(s)...\n",
+			colors.ColorBlue, colors.ColorReset, len(images))
 
-		fmt.Printf("%s[INFO]%s Starting container...\n", colors.ColorBlue, colors.ColorReset)
-		containerID, err := docker.StartContainer(image)
-		if err != nil {
-			return fmt.Errorf("%s[ERROR]%s Failed to start container: %w", colors.ColorRed, colors.ColorReset, err)
+		for i, image := range images {
+			i := i
+			image := image
+
+			targets[i] = scanTarget{Image: image}
+
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+
+				containerID, err := docker.StartContainer(image)
+				if err != nil {
+					targets[i].StartErr = err
+					return
+				}
+
+				targets[i].ContainerID = containerID
+			}()
 		}
-		fmt.Printf("%s[INFO]%s Container started: %s%s%s\n",
-			colors.ColorGreen, colors.ColorReset,
-			colors.ColorBold, containerID[:12], colors.ColorReset)
+
+		wg.Wait()
+
+		startedTargets := make([]scanTarget, 0, len(targets))
+		for _, t := range targets {
+			if t.StartErr != nil {
+				fmt.Printf("%s[ERROR]%s Failed to start container for image %s: %v\n",
+					colors.ColorRed, colors.ColorReset, t.Image, t.StartErr)
+				continue
+			}
+
+			fmt.Printf("%s[INFO]%s Container started for %s: %s%s%s\n",
+				colors.ColorGreen, colors.ColorReset,
+				t.Image,
+				colors.ColorBold, t.ContainerID[:12], colors.ColorReset)
+
+			startedTargets = append(startedTargets, t)
+		}
+
+		if len(startedTargets) == 0 {
+			return fmt.Errorf("%s[ERROR]%s failed to start any containers", colors.ColorRed, colors.ColorReset)
+		}
 
 		time.Sleep(2 * time.Second)
 
-		results, err := scanner.RunChecks(containerID, timeout)
-		if err != nil {
-			return fmt.Errorf("%s[ERROR]%s Scan error: %w", colors.ColorRed, colors.ColorReset, err)
-		}
+		hasIssues := false
 
-		reportData := report.BuildReport(image, containerID, results)
+		for _, t := range startedTargets {
+			fmt.Printf("\n%s[INFO]%s Scanning image: %s%s%s\n",
+				colors.ColorBlue, colors.ColorReset,
+				colors.ColorBold, t.Image, colors.ColorReset)
 
-		if flagSavePath != "" {
-			jsonBytes, err := json.MarshalIndent(reportData, "", "  ")
+			results, err := scanner.RunChecks(t.ContainerID, timeout)
 			if err != nil {
-				return fmt.Errorf("failed to marshal report: %w", err)
+				fmt.Printf("%s[WARN]%s Scan error for %s: %v\n",
+					colors.ColorYellow, colors.ColorReset, t.Image, err)
+				hasIssues = true
+				continue
 			}
 
-			err = os.WriteFile(flagSavePath, jsonBytes, 0644)
-			if err != nil {
-				return fmt.Errorf("failed to save report: %w", err)
-			}
-			fmt.Printf("%s[INFO]%s Report saved to: %s\n",
-				colors.ColorGreen, colors.ColorReset, flagSavePath)
-		}
+			reportData := report.BuildReport(t.Image, t.ContainerID, results)
 
-		if flagSaveDB {
-			dbConn, err := db.Connect(db.Config{
-				Host:     flagDBHost,
-				Port:     flagDBPort,
-				User:     flagDBUser,
-				Password: flagDBPassword,
-				DBName:   flagDBName,
-				SSLMode:  "disable",
-			})
-			if err != nil {
-				fmt.Printf("%s[WARN]%s Failed to connect to database: %v\n",
-					colors.ColorYellow, colors.ColorReset, err)
-			} else {
-				defer dbConn.Close()
+			if flagSavePath != "" {
+				filePath := flagSavePath
+				if len(startedTargets) > 1 {
+					filePath = fmt.Sprintf("%s_%s.json", flagSavePath, t.ContainerID[:12])
+				}
 
-				repo := db.NewRepository(dbConn)
-				scanID, err := repo.SaveScanReport(reportData)
+				jsonBytes, err := json.MarshalIndent(reportData, "", "  ")
 				if err != nil {
-					fmt.Printf("%s[WARN]%s Failed to save to database: %v\n",
+					return fmt.Errorf("failed to marshal report for %s: %w", t.Image, err)
+				}
+
+				err = os.WriteFile(filePath, jsonBytes, 0644)
+				if err != nil {
+					return fmt.Errorf("failed to save report for %s: %w", t.Image, err)
+				}
+
+				fmt.Printf("%s[INFO]%s Report saved to: %s\n",
+					colors.ColorGreen, colors.ColorReset, filePath)
+			}
+
+			if flagSaveDB {
+				dbConn, err := db.Connect(db.Config{
+					Host:     flagDBHost,
+					Port:     flagDBPort,
+					User:     flagDBUser,
+					Password: flagDBPassword,
+					DBName:   flagDBName,
+					SSLMode:  "disable",
+				})
+				if err != nil {
+					fmt.Printf("%s[WARN]%s Failed to connect to database: %v\n",
 						colors.ColorYellow, colors.ColorReset, err)
 				} else {
-					fmt.Printf("%s[INFO]%s Report saved to database with ID: %d\n",
-						colors.ColorGreen, colors.ColorReset, scanID)
+					repo := db.NewRepository(dbConn)
+					scanID, err := repo.SaveScanReport(reportData)
+					if err != nil {
+						fmt.Printf("%s[WARN]%s Failed to save to database: %v\n",
+							colors.ColorYellow, colors.ColorReset, err)
+					} else {
+						fmt.Printf("%s[INFO]%s Report saved to database with ID: %d\n",
+							colors.ColorGreen, colors.ColorReset, scanID)
+					}
+					_ = dbConn.Close()
 				}
+			}
+
+			if results.HasIssues {
+				hasIssues = true
 			}
 		}
 
-		fmt.Printf("%s[INFO]%s Stopping and removing container...\n",
-			colors.ColorBlue, colors.ColorReset)
-		_ = docker.StopContainer(containerID)
-		fmt.Printf("%s[INFO]%s Container cleaned up\n",
-			colors.ColorGreen, colors.ColorReset)
+		for _, t := range startedTargets {
+			fmt.Printf("%s[INFO]%s Stopping and removing container: %s%s%s\n",
+				colors.ColorBlue, colors.ColorReset,
+				colors.ColorBold, t.ContainerID[:12], colors.ColorReset)
 
-		if results.HasIssues {
+			_ = docker.StopContainer(t.ContainerID)
+
+			fmt.Printf("%s[INFO]%s Container cleaned up: %s%s%s\n",
+				colors.ColorGreen, colors.ColorReset,
+				colors.ColorBold, t.ContainerID[:12], colors.ColorReset)
+		}
+
+		if hasIssues {
 			fmt.Printf("\n%s[ALERT]%s Security issues detected - exiting with error code 1\n",
 				colors.ColorRed, colors.ColorReset)
 			os.Exit(1)

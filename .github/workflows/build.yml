@@ -205,6 +205,7 @@ jobs:
       - name: Scan vulnerable container
         run: |
           mkdir -p reports
+          set +e
           ./sailor scan test-app-bad:${{ github.sha }} \
             --save-db \
             --db-host localhost \
@@ -212,6 +213,9 @@ jobs:
             --db-password sailor_pass \
             --db-name sailor \
             --save-result reports/bad-scan.json
+          SCAN_EXIT_CODE=$?
+          echo "SCAN_EXIT_CODE=$SCAN_EXIT_CODE" >> $GITHUB_ENV
+          exit 0
 
       - name: Upload scan results (bad)
         uses: actions/upload-artifact@v4
@@ -222,6 +226,11 @@ jobs:
 
       - name: Check scan results (fail pipeline if vulnerabilities found)
         run: |
+          if [ "${SCAN_EXIT_CODE}" != "0" ]; then
+            echo "::error::🚨 Sailor reported security issues in vulnerable container"
+            exit 1
+          fi
+
           if [ -f reports/bad-scan.json ]; then
             VULNERABILITIES=$(jq '.vulnerabilities | length' reports/bad-scan.json 2>/dev/null || echo "0")
 
@@ -236,12 +245,96 @@ jobs:
             exit 1
           fi
 
-  deploy-or-next-stage:
-    name: Next Stage (Should not run if bad container failed)
+  scan-multi-container:
+    name: Scan Multiple Containers
     runs-on: ubuntu-latest
-    needs: [scan-good-container, scan-bad-container]
+    needs: [build, setup-database]
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: sailor_user
+          POSTGRES_PASSWORD: sailor_pass
+          POSTGRES_DB: sailor
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
 
     steps:
-      - name: This should NOT run if bad container is vulnerable
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download Sailor binary
+        uses: actions/download-artifact@v4
+        with:
+          name: sailor-binary
+
+      - name: Download Docker images
+        uses: actions/download-artifact@v4
+        with:
+          name: test-images
+
+      - name: Load Docker images
         run: |
-          echo "🚀 This step runs only if both scans passed"
+          docker load -i good-image.tar
+          docker load -i bad-image.tar
+          chmod +x sailor
+
+      - name: Setup database
+        env:
+          PGPASSWORD: sailor_pass
+        run: |
+          psql -h localhost -U sailor_user -d sailor -f init.sql
+
+      - name: Scan multiple containers
+        run: |
+          mkdir -p reports/multi-scan
+          set +e
+          ./sailor scan \
+            test-app-good:${{ github.sha }} \
+            test-app-bad:${{ github.sha }} \
+            --save-db \
+            --db-host localhost \
+            --db-user sailor_user \
+            --db-password sailor_pass \
+            --db-name sailor \
+            --save-result reports/multi-scan/report
+          SCAN_EXIT_CODE=$?
+          echo "MULTI_SCAN_EXIT_CODE=$SCAN_EXIT_CODE" >> $GITHUB_ENV
+          exit 0
+
+      - name: Show generated reports
+        if: always()
+        run: |
+          echo "Generated files:"
+          ls -la reports/multi-scan || true
+
+      - name: Upload scan results (multi)
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: multi-container-scan
+          path: reports/multi-scan/*.json
+          if-no-files-found: warn
+
+      - name: Check multi scan results
+        run: |
+          if [ "${MULTI_SCAN_EXIT_CODE}" != "0" ]; then
+            echo "::error::🚨 Multi-container scan reported security issues"
+            exit 1
+          fi
+
+  deploy-or-next-stage:
+    name: Next Stage (Should not run if any scan failed)
+    runs-on: ubuntu-latest
+    needs: [scan-good-container, scan-bad-container, scan-multi-container]
+
+    steps:
+      - name: This should NOT run if any scan failed
+        run: |
+          echo "🚀 This step runs only if all scans passed"

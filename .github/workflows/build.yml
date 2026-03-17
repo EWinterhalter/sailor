@@ -2,9 +2,9 @@ name: Pipeline Sailor scan
 
 on:
   push:
-    branches: [ beta ]
+    branches: [ release ]
   pull_request:
-    branches: [ beta ]
+    branches: [ release]
   workflow_dispatch:
 
 jobs:

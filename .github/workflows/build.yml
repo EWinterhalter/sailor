@@ -68,7 +68,7 @@ jobs:
         env:
           POSTGRES_PASSWORD: ${{ secrets.DB_PASSWORD }}
           POSTGRES_USER: ${{ secrets.DB_USER }}
-          POSTGRES_DB: sailor
+          POSTGRES_DB: sailor_db
         options: >-
           --health-cmd pg_isready
           --health-interval 10s
@@ -85,14 +85,14 @@ jobs:
         env:
           PGPASSWORD: ${{ secrets.DB_PASSWORD }}
         run: |
-          psql -h localhost -U sailor_user -d sailor -f init.sql
+          psql -h localhost -U ${{ secrets.DB_USER }} -d sailor_db -f init.sql
           echo "Database setup successfully"
 
       - name: Verify database
         env:
           PGPASSWORD: ${{ secrets.DB_PASSWORD }}
         run: |
-          psql -h localhost -U sailor_user -d sailor -c "\dt"
+          psql -h localhost -U ${{ secrets.DB_USER }} -d sailor_db -c "\dt"
 
   scan-good-container:
     name: Scan Secure Container
@@ -105,7 +105,7 @@ jobs:
         env:
           POSTGRES_PASSWORD: ${{ secrets.DB_PASSWORD }}
           POSTGRES_USER: ${{ secrets.DB_USER }}
-          POSTGRES_DB: sailor
+          POSTGRES_DB: sailor_db
         options: >-
           --health-cmd pg_isready
           --health-interval 10s
@@ -137,7 +137,7 @@ jobs:
         env:
           PGPASSWORD: ${{ secrets.DB_PASSWORD }}
         run: |
-          psql -h localhost -U sailor_user -d sailor -f init.sql
+          psql -h localhost -U ${{ secrets.DB_USER }} -d sailor_db -f init.sql
 
       - name: Scan secure container
         run: |
@@ -146,8 +146,8 @@ jobs:
             --save-db \
             --db-host localhost \
             --db-password ${{ secrets.DB_PASSWORD }} \
-            --db-user ${{ secrets.DB_USER }} \  
-            --db-name sailor \
+            --db-user ${{ secrets.DB_USER }} \
+            --db-name sailor_db \
             --save-result reports/good-scan.json
 
       - name: Upload scan results (good)
@@ -168,7 +168,7 @@ jobs:
         env:
           POSTGRES_PASSWORD: ${{ secrets.DB_PASSWORD }}
           POSTGRES_USER: ${{ secrets.DB_USER }}
-          POSTGRES_DB: sailor
+          POSTGRES_DB: sailor_db
         options: >-
           --health-cmd pg_isready
           --health-interval 10s
@@ -200,7 +200,7 @@ jobs:
         env:
           PGPASSWORD: ${{ secrets.DB_PASSWORD }}
         run: |
-          psql -h localhost -U sailor_user -d sailor -f init.sql
+          psql -h localhost -U ${{ secrets.DB_USER }} -d sailor_db -f init.sql
 
       - name: Scan vulnerable container
         run: |
@@ -210,8 +210,8 @@ jobs:
             --save-db \
             --db-host localhost \
             --db-password ${{ secrets.DB_PASSWORD }} \
-            --db-user ${{ secrets.DB_USER }} \  
-            --db-name sailor \
+            --db-user ${{ secrets.DB_USER }} \
+            --db-name sailor_db \
             --save-result reports/bad-scan.json
           SCAN_EXIT_CODE=$?
           echo "SCAN_EXIT_CODE=$SCAN_EXIT_CODE" >> $GITHUB_ENV
@@ -256,7 +256,7 @@ jobs:
         env:
           POSTGRES_PASSWORD: ${{ secrets.DB_PASSWORD }}
           POSTGRES_USER: ${{ secrets.DB_USER }}
-          POSTGRES_DB: sailor
+          POSTGRES_DB: sailor_db
         options: >-
           --health-cmd pg_isready
           --health-interval 10s
@@ -289,7 +289,7 @@ jobs:
         env:
           PGPASSWORD: ${{ secrets.DB_PASSWORD }}
         run: |
-          psql -h localhost -U sailor_user -d sailor -f init.sql
+          psql -h localhost -U ${{ secrets.DB_USER }} -d sailor_db -f init.sql
 
       - name: Scan multiple containers
         run: |
@@ -301,8 +301,8 @@ jobs:
             --save-db \
             --db-host localhost \
             --db-password ${{ secrets.DB_PASSWORD }} \
-            --db-user ${{ secrets.DB_USER }} \  
-            --db-name sailor \
+            --db-user ${{ secrets.DB_USER }} \
+            --db-name sailor_db \
             --save-result reports/multi-scan/report
           SCAN_EXIT_CODE=$?
           echo "MULTI_SCAN_EXIT_CODE=$SCAN_EXIT_CODE" >> $GITHUB_ENV

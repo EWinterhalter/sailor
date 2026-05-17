@@ -54,12 +54,15 @@ func findSensitiveEnv(envOutput string) []string {
 
 	for _, line := range lines {
 		upperLine := strings.ToUpper(line)
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) == 0 {
+			continue
+		}
+		varName := parts[0]
 		for _, key := range sensitiveKeys {
-			if strings.Contains(upperLine, key) && !contains(found, key) {
-				parts := strings.SplitN(line, "=", 2)
-				if len(parts) > 0 {
-					found = append(found, parts[0])
-				}
+			if strings.Contains(upperLine, key) && !contains(found, varName) {
+				found = append(found, varName)
+				break
 			}
 		}
 	}

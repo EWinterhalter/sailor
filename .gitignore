@@ -1,3 +1,5 @@
 sailor
 scan-result.json
 docker-compose.yml
+coverage.out
+.env

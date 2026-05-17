@@ -103,8 +103,8 @@ jobs:
       postgres:
         image: postgres:15
         env:
-          POSTGRES_USER: sailor_user
-          PGPASSWORD: ${{ secrets.DB_PASSWORD }}
+          POSTGRES_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          POSTGRES_USER: ${{ secrets.DB_USER }}
           POSTGRES_DB: sailor
         options: >-
           --health-cmd pg_isready
